@@ -47,7 +47,7 @@
         <!-- Full Keycloak patch version (keycloak-parent/keycloak-test-framework-bom must
              match, see docs/CONTRIBUTING.md). Its major.minor must match kc-versions.sh's max
              supported version - scripts/check-pom-kc-versions-sync.sh enforces this. -->
-        <keycloak.version>26.7.0</keycloak.version>
+        <keycloak.version>26.7.1</keycloak.version>
         <build-suffix>-SNAPSHOT</build-suffix>
         <!-- Literal default required by the test-framework's Quarkus resolver, see docs/CONTRIBUTING.md.
              This is the extension's own semver; it never encodes the Keycloak version (see scripts/kc-versions.sh). -->
