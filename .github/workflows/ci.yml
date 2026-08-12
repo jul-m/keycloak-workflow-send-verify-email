@@ -18,7 +18,7 @@ jobs:
       # events default to) so the version-enforcement step below can commit and push
       # to it directly.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref || github.ref }}
 
