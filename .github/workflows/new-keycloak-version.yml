@@ -1,0 +1,222 @@
+# Detects new Keycloak minor releases and runs the real integration test suite
+# against them - not just a compatibility check. What happens on merge of the PRs
+# this opens (kc-support/* -> extend the latest release's notes, no rebuild;
+# kc-fix/* -> a real code change, ships like any other update) is handled by
+# release.yml, which triggers on merged pull requests.
+#
+# `detect-and-test` (scheduled, or manual via workflow_dispatch): finds the next
+# Keycloak minor above kc-versions.sh's current max and runs
+# scripts/build-tests.sh <version> (Keycloak's own test-framework, not a Docker
+# smoke test) against the current `main` source.
+# - Tests pass  -> opens a PR from `kc-support/<version>` (pom.xml + scripts/kc-versions.sh
+#   bumped, READMEs regenerated, no code changes).
+# - Tests fail  -> opens a draft PR from `kc-fix/<version>` (same version-list bump, CI
+#   expected to stay red until a human fixes the incompatibility) plus a tracking
+#   issue the PR closes on merge.
+# Either way, `ci.yml` is explicitly triggered on the new branch afterwards: a push
+# or PR made with the default GITHUB_TOKEN does not itself trigger other workflow
+# runs, so without this the PR would otherwise sit with no CI check at all.
+#
+# NOTE: this workflow has not been exercised end-to-end yet (no new Keycloak minor was
+# available to test against at the time it was written). Validate it manually via
+# workflow_dispatch (optionally forcing `keycloak_version`) before trusting its output,
+# per docs/CONTRIBUTING.md.
+name: New Keycloak version
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday
+  workflow_dispatch:
+    inputs:
+      keycloak_version:
+        description: Force-check a specific Keycloak minor version (e.g. 26.8) instead of auto-detecting new releases
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  detect-and-test:
+    name: Detect and test a new Keycloak release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Determine current max supported version
+        id: current
+        run: echo "max=$(bash scripts/kc-versions.sh max)" >> "$GITHUB_OUTPUT"
+
+      - name: Find the next candidate Keycloak version
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCED_VERSION: ${{ inputs.keycloak_version }}
+          CURRENT_MAX: ${{ steps.current.outputs.max }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$FORCED_VERSION" ]]; then
+            echo "version=$FORCED_VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Keycloak's own release tags are X.Y.Z; reduce to unique X.Y minors, keep only
+          # those newer than our current max, and take the lowest one - one candidate per
+          # run keeps kc-versions.sh gap-free and each PR single-purpose. The next candidate
+          # (if any) is picked up on a later run once this one is resolved.
+          all_minors=$(gh api repos/keycloak/keycloak/releases --paginate --jq '.[].tag_name' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | awk -F. '{print $1"."$2}' \
+            | sort -u -t. -k1,1n -k2,2n)
+          next=$(echo "$all_minors" | awk -F. -v max="$CURRENT_MAX" '
+            { split(max, m, "."); if ($1 > m[1] || ($1 == m[1] && $2 > m[2])) print }
+          ' | sort -u -t. -k1,1n -k2,2n | head -n1)
+          echo "version=${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if a branch already exists for this version
+        id: guard
+        if: steps.candidate.outputs.version != ''
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "kc-support/$VERSION" "kc-fix/$VERSION" > /dev/null 2>&1; then
+            echo "A branch already exists for Keycloak $VERSION - nothing to do this run."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run integration tests against the candidate version
+        id: test
+        if: steps.candidate.outputs.version != '' && steps.guard.outputs.proceed == 'true'
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -uo pipefail
+          if bash scripts/build-tests.sh "$VERSION"; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the version-bump branch
+        id: branch
+        if: steps.candidate.outputs.version != '' && steps.guard.outputs.proceed == 'true'
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+          RESULT: ${{ steps.test.outputs.result }}
+        run: |
+          set -euo pipefail
+          prefix="kc-support"
+          if [[ "$RESULT" != "success" ]]; then
+            prefix="kc-fix"
+          fi
+          branch="$prefix/$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          sed -i -E "s/(<keycloak\.version>)[0-9]+\.[0-9]+\.[0-9]+(<\/keycloak\.version>)/\1${VERSION}.0\2/" pom.xml
+          sed -i -E "s/(SUPPORTED_KC_VERSIONS=\()(.*)(\))/\1\2 \"$VERSION\"\3/" scripts/kc-versions.sh
+          bash scripts/render-readme-compat-table.sh
+          git add pom.xml scripts/kc-versions.sh README.md README.fr.md
+          git commit -m "chore: add Keycloak $VERSION as a candidate version"
+          git push -u origin "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open a tracking issue for the failing candidate
+        id: issue
+        if: steps.test.outputs.result == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "Keycloak $VERSION failed the automated compatibility check run by"
+            echo "\`.github/workflows/new-keycloak-version.yml\` - \`scripts/build-tests.sh $VERSION\`"
+            echo "(real integration tests, not a smoke test) did not pass against this version."
+            echo
+            echo "See the failed run for full logs: $run_url"
+            echo
+            echo "Branch \`$BRANCH\` already has \`pom.xml\` and \`scripts/kc-versions.sh\` bumped to this"
+            echo "version - the fix (or the decision to drop this version instead) belongs"
+            echo "there. See the linked pull request."
+          } > issue_body.md
+          number=$(gh issue create \
+            --title "Keycloak $VERSION compatibility check failed" \
+            --body-file issue_body.md | grep -oE '[0-9]+$')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request (compatible, no rebuild needed)
+        if: steps.test.outputs.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          {
+            echo "\`scripts/build-tests.sh $VERSION\` (real integration tests via Keycloak's"
+            echo "test-framework, not a smoke test) passed against Keycloak $VERSION using the"
+            echo "current \`main\` source, with no code changes."
+            echo
+            echo "This bumps \`pom.xml\` and \`scripts/kc-versions.sh\` to $VERSION and refreshes the"
+            echo "compatibility tables. Merging it does **not** publish a new release: the"
+            echo "already-published latest release's notes are updated automatically to"
+            echo "extend the documented compatibility range."
+          } > pr_body.md
+          gh pr create --base main --head "$BRANCH" \
+            --title "Add Keycloak $VERSION support (validated, no rebuild)" \
+            --body-file pr_body.md
+
+      - name: Open pull request (needs a code fix)
+        if: steps.test.outputs.result == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "\`scripts/build-tests.sh $VERSION\` failed against Keycloak $VERSION using the"
+            echo "current \`main\` source - see #$ISSUE for details."
+            echo
+            echo "This branch already has \`pom.xml\` and \`scripts/kc-versions.sh\` bumped to $VERSION, so"
+            echo "CI is expected to stay red here until the incompatibility is actually fixed"
+            echo "(runtime reflection if only a method signature changed, or drop the version"
+            echo "from \`scripts/kc-versions.sh\` again if it can't be made to work)."
+            echo
+            echo "Merging this once fixed is a real code change, so it will automatically"
+            echo "trigger a new release with the next patch version."
+            echo
+            echo "Fixes #$ISSUE"
+          } > pr_body.md
+          gh pr create --base main --head "$BRANCH" --draft \
+            --title "Fix Keycloak $VERSION compatibility" \
+            --body-file pr_body.md
+
+      - name: Trigger CI on the new branch
+        if: steps.branch.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          set -euo pipefail
+          # The push and PR creation above used the default GITHUB_TOKEN, which does
+          # not itself trigger other workflow runs - without this, the new PR would
+          # sit with no CI check at all.
+          gh workflow run ci.yml --ref "$BRANCH"

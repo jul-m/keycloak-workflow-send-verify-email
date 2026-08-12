@@ -1,0 +1,25 @@
+# Sends a verification email when a user is added to a group, using a custom message.
+#
+# Apply with:
+#   curl -X POST "https://keycloak.example.com/admin/realms/myrealm/workflows" \
+#     -H "Authorization: Bearer $TOKEN" \
+#     -H "Content-Type: application/yaml" \
+#     --data-binary @example1.yml
+#
+# See ../../README.md for the full parameter and variable reference.
+name: Onboarding new users
+on: user-group-membership-added
+steps:
+  - uses: send-verify-email
+    with:
+      message: |-
+        <p>Dear ${user.firstName} ${user.lastName}, </p>
+
+        <p>Welcome to ${realm.displayName}!</p>
+
+        <p>Verify your email address here: ${link}</p>
+
+        <p>
+           Best regards,<br/>
+           ${realm.displayName} Team
+        </p>

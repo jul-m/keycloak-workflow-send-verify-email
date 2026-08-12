@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 0.1.0
+        required: true
+        type: string
+      prerelease:
+        description: Optional pre-release label, for example rc.1
+        required: false
+        default: ""
+        type: string
+  pull_request:
+    types: [closed]
+
+jobs:
+  release:
+    name: Build and publish release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+       (startsWith(github.event.pull_request.head.ref, 'feat/') ||
+        startsWith(github.event.pull_request.head.ref, 'fix/') ||
+        startsWith(github.event.pull_request.head.ref, 'kc-fix/')))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && 'main' || github.ref }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Determine release version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            prerelease="$INPUT_PRERELEASE"
+          else
+            # ci.yml already enforced and committed this version on the branch before
+            # it could pass CI and be merged - just trust what's on main now.
+            version=$(grep -m1 -oE '<project-version>[0-9]+\.[0-9]+\.[0-9]+</project-version>' pom.xml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+            prerelease=""
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ -n "$prerelease" ]]; then
+            [[ "$prerelease" =~ ^[0-9A-Za-z.-]+$ ]]
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Check pom.xml / kc-versions.sh are in sync
+        run: bash scripts/check-pom-kc-versions-sync.sh
+
+      - name: Validate every supported Keycloak version
+        run: bash scripts/build-tests.sh all
+
+      - name: Build release artifact
+        run: |
+          set -euo pipefail
+          suffix="FINAL"
+          if [[ -n "${{ steps.version.outputs.prerelease }}" ]]; then
+            suffix="${{ steps.version.outputs.prerelease }}"
+          fi
+          bash scripts/build-tests.sh "" \
+            -Dproject-version="${{ steps.version.outputs.version }}" \
+            -Dbuild-suffix="-$suffix" \
+            -Drevision="${{ steps.version.outputs.version }}-$suffix"
+
+      - name: Create checksum
+        run: |
+          set -euo pipefail
+          jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
+          test -n "$jar"
+          sha256sum "$jar" > "$jar.sha256"
+
+      - name: Compute supported Keycloak range
+        id: kc_range
+        run: |
+          set -euo pipefail
+          echo "range=$(bash scripts/kc-versions.sh range)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${{ steps.version.outputs.version }}"
+          if [[ -n "${{ steps.version.outputs.prerelease }}" ]]; then
+            tag="$tag-${{ steps.version.outputs.prerelease }}"
+          fi
+          jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
+          notes_file="$(mktemp)"
+          {
+            echo "**Supported Keycloak versions:** ${{ steps.kc_range.outputs.range }}"
+            echo
+          } > "$notes_file"
+          gh release create "$tag" "$jar" "$jar.sha256" \
+            --title "$tag" \
+            --notes-file "$notes_file" \
+            --generate-notes \
+            $([[ -n "${{ steps.version.outputs.prerelease }}" ]] && echo --prerelease)
+
+      - name: Refresh README compatibility table
+        run: |
+          set -euo pipefail
+          bash scripts/render-readme-compat-table.sh
+          if git diff --quiet -- README.md README.fr.md; then
+            echo "No README changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md README.fr.md
+          git commit -m "docs: refresh Keycloak compatibility table for ${{ steps.version.outputs.version }}"
+          git push
+
+  kc-support-merge:
+    name: Extend latest release's supported range (no rebuild)
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'kc-support/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update latest release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_tag=$(gh release view --json tagName --jq .tagName)
+          range=$(bash scripts/kc-versions.sh range)
+          new_line="**Supported Keycloak versions:** ${range}"
+          current_notes=$(gh release view "$latest_tag" --json body --jq .body)
+          if printf '%s\n' "$current_notes" | head -n1 | grep -q '^\*\*Supported Keycloak versions:\*\*'; then
+            printf '%s\n' "$current_notes" | tail -n +2 > notes_rest.md
+          else
+            {
+              echo
+              printf '%s\n' "$current_notes"
+            } > notes_rest.md
+          fi
+          { echo "$new_line"; cat notes_rest.md; } > notes.md
+          gh release edit "$latest_tag" --notes-file notes.md
+
+  sync-open-branches:
+    name: Sync open managed branches with main
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into other open managed branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGED_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          for prefix in feat fix kc-fix kc-support; do
+            branches=$(gh pr list --state open --json headRefName --jq \
+              ".[] | select(.headRefName | startswith(\"$prefix/\")) | .headRefName")
+            for branch in $branches; do
+              if [[ "$branch" == "$MERGED_BRANCH" ]]; then
+                continue
+              fi
+
+              echo "== Syncing $branch with main =="
+              ok=true
+              git fetch origin "$branch" || ok=false
+
+              if [[ "$ok" == "true" ]]; then
+                git checkout -B "$branch" "origin/$branch"
+                if ! git merge origin/main --no-edit; then
+                  git merge --abort
+                  ok=false
+                fi
+              fi
+
+              if [[ "$ok" == "true" ]] && ! git push origin "$branch"; then
+                ok=false
+              fi
+
+              git checkout main > /dev/null 2>&1 || true
+
+              if [[ "$ok" == "true" ]]; then
+                gh workflow run ci.yml --ref "$branch"
+              else
+                pr_number=$(gh pr list --state open --head "$branch" --json number --jq '.[0].number')
+                if [[ -n "$pr_number" ]]; then
+                  gh pr comment "$pr_number" --body "Could not automatically merge \`main\` into this branch (fork without \"Allow edits by maintainers\", or a merge conflict). Please rebase/merge \`main\` into this branch manually."
+                fi
+              fi
+            done
+          done

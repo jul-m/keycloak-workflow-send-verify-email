@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a problem with the send-verify-email workflow step
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search existing issues first to avoid duplicates.
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      description: The extension's own release version (see the Keycloak version field below separately)
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: keycloak-version
+    attributes:
+      label: Keycloak version
+      placeholder: 26.7.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the workflow/step configuration used (redact secrets).
+      placeholder: |
+        1. Configure a workflow with step '...'
+        2. Trigger '...'
+        3. Observe '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Keycloak server logs around the failure, if any.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help (realm settings, frontendUrl, etc.).
