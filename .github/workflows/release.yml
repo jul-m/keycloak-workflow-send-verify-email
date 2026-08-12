@@ -73,20 +73,25 @@ jobs:
       - name: Check pom.xml / kc-versions.sh are in sync
         run: bash scripts/check-pom-kc-versions-sync.sh
 
-      - name: Validate every supported Keycloak version
-        run: bash scripts/build-tests.sh all
-
-      - name: Build release artifact
+      - name: Validate every supported Keycloak version and build release artifact
         run: |
           set -euo pipefail
-          suffix="FINAL"
+          suffix=""
           if [[ -n "${{ steps.version.outputs.prerelease }}" ]]; then
-            suffix="${{ steps.version.outputs.prerelease }}"
+            suffix="-${{ steps.version.outputs.prerelease }}"
           fi
-          bash scripts/build-tests.sh "" \
+          # "all" validates every supported version in order (ascending, see kc-versions.sh) -
+          # the last run is against the max version, i.e. the one pom.xml already builds by
+          # default, and its target/*.jar is what survives (each run does `mvn clean` first)
+          # and becomes the actual release artifact. Baking -Dproject-version/-Drevision into
+          # every run (not just the last) is harmless since only the last one's output is kept -
+          # this avoids a second full `mvn clean verify` on the max version just to relabel it.
+          # No suffix on a final release: the jar is named <artifactId>-<version>.jar, not
+          # <artifactId>-<version>-FINAL.jar.
+          bash scripts/build-tests.sh all \
             -Dproject-version="${{ steps.version.outputs.version }}" \
-            -Dbuild-suffix="-$suffix" \
-            -Drevision="${{ steps.version.outputs.version }}-$suffix"
+            -Dbuild-suffix="$suffix" \
+            -Drevision="${{ steps.version.outputs.version }}$suffix"
 
       - name: Create checksum
         run: |

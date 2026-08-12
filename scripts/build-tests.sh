@@ -13,7 +13,8 @@
 #                             failure (same validation .github/workflows/release.yml runs
 #                             before a release).
 #   maven-args              - extra arguments passed through to Maven as-is, e.g.
-#                             -Dproject-version=0.2.0 -Drevision=0.2.0-FINAL
+#                             -Dproject-version=0.2.0 -Drevision=0.2.0 (or 0.2.0-rc.1 for a
+#                             pre-release)
 #
 # Always runs `mvn clean verify` (unit + integration tests) against a single Keycloak
 # version, except with "all" which runs it once per version listed in
