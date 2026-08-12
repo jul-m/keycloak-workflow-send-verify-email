@@ -53,7 +53,7 @@ if [[ -n "$VERSION" ]]; then
 	MAVEN_OPTIONS=(-Dkeycloak.version="${VERSION}.0")
 fi
 
-MAVEN_CMD=(mvn clean verify)
+MAVEN_CMD=(mvn --batch-mode --no-transfer-progress clean verify)
 if (( ${#MAVEN_OPTIONS[@]} > 0 )); then
 	MAVEN_CMD+=("${MAVEN_OPTIONS[@]}")
 fi

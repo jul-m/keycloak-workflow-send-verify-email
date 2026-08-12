@@ -35,8 +35,15 @@ jobs:
         with:
           languages: java-kotlin
 
-      - name: Build
-        run: bash scripts/build-tests.sh 26.7
+      # CodeQL only needs a successful compile to build its semantic database,
+      # not the full unit+integration test suite (ci.yml already runs that on
+      # every push/PR) - reusing scripts/build-tests.sh here doubled CI time
+      # and let a flaky integration test block the security scan.
+      - name: Build (compile only)
+        run: |
+          set -euo pipefail
+          kc_version="$(bash scripts/kc-versions.sh max).0"
+          mvn --batch-mode --no-transfer-progress -Dkeycloak.version="$kc_version" clean compile
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4
