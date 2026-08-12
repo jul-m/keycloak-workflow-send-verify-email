@@ -1,13 +1,10 @@
 name: CI
 
 on:
-  # Restricted to main: pull_request below already covers every branch that
-  # has an open PR (Dependabot, contributors, forks, feat/*, fix/*, kc-fix/*,
-  # kc-support/*), and an unrestricted push here would fire alongside
-  # pull_request for the same commit on any same-repo branch - e.g. Dependabot
-  # pushes its branch with its own bot token (unlike this workflow's own
-  # git push steps, which use GITHUB_TOKEN and are deliberately not
-  # re-triggering by GitHub), so both events fire and CI ran twice per PR.
+  # push limited to main: pull_request below already covers every branch with
+  # an open PR. An unrestricted push here fires alongside pull_request for the
+  # same commit on same-repo branches (e.g. Dependabot, which pushes with its
+  # own bot token rather than GITHUB_TOKEN).
   push:
     branches: [main]
   pull_request:

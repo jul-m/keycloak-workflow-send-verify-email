@@ -9,13 +9,20 @@ updates:
   - package-ecosystem: maven
     directory: "/"
     schedule:
-      interval: monthly
+      interval: weekly
     open-pull-requests-limit: 5
     ignore:
       - dependency-name: "org.keycloak:*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "org.keycloak.testframework:*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      maven-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "org.keycloak:*"
+          - "org.keycloak.testframework:*"
 
   # GitHub Actions: group all action updates into one PR per run.
   - package-ecosystem: github-actions

@@ -34,11 +34,11 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
+          # manual: the build step below runs its own mvn command, not autobuild.
+          build-mode: manual
 
-      # CodeQL only needs a successful compile to build its semantic database,
-      # not the full unit+integration test suite (ci.yml already runs that on
-      # every push/PR) - reusing scripts/build-tests.sh here doubled CI time
-      # and let a flaky integration test block the security scan.
+      # CodeQL only needs a successful compile to extract its database; the
+      # full test suite is ci.yml's job.
       - name: Build (compile only)
         run: |
           set -euo pipefail
