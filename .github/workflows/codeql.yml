@@ -34,16 +34,10 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
-          # manual: the build step below runs its own mvn command, not autobuild.
-          build-mode: manual
-
-      # CodeQL only needs a successful compile to extract its database; the
-      # full test suite is ci.yml's job.
-      - name: Build (compile only)
-        run: |
-          set -euo pipefail
-          kc_version="$(bash scripts/kc-versions.sh max).0"
-          mvn --batch-mode --no-transfer-progress -Dkeycloak.version="$kc_version" clean compile
+          # none (testing, 2026-08-12): no build, so no Maven dependency download - the
+          # Keycloak SPI types (provided scope) may not resolve. Compare finding counts /
+          # diagnostics against the previous "manual" runs before trusting this long-term.
+          build-mode: none
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4
