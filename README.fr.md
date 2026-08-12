@@ -64,14 +64,19 @@ toutes les valeurs par défaut, sont déléguées au même code interne que l'AP
 
 ## Installation
 
-1. Télécharger le JAR et son fichier de somme de contrôle `.sha256` depuis la page
+1. Télécharger le JAR depuis la page
    [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases). Chaque release
    fournit un **JAR unique** couvrant toutes les versions Keycloak listées dans ses notes de
    version ; le numéro de version de l'extension n'encode jamais une version de Keycloak.
-2. Vérifier la somme de contrôle avant déploiement :
+2. Vérifier la somme de contrôle avant déploiement, par rapport au digest SHA256 que GitHub calcule
+   et publie lui-même pour l'asset (visible sur la page de release, ou via `gh release view`) :
 
    ```bash
-   sha256sum -c keycloak-workflow-send-verify-email-<version>.jar.sha256
+   version=<version> # ex. 0.1.0
+   jar="keycloak-workflow-send-verify-email-$version.jar"
+   remote_sha="$(gh release view "v$version" --json assets \
+     --jq ".assets[] | select(.name == \"$jar\") | .digest" | cut -d: -f2)"
+   [[ "$(sha256sum "$jar" | cut -d' ' -f1)" == "$remote_sha" ]] && echo OK || echo MISMATCH
    ```
 3. Copier le JAR dans le répertoire `providers/` de Keycloak.
 4. Reconstruire l'augmentation du serveur puis redémarrer Keycloak :

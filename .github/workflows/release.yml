@@ -93,13 +93,6 @@ jobs:
             -Dbuild-suffix="$suffix" \
             -Drevision="${{ steps.version.outputs.version }}$suffix"
 
-      - name: Create checksum
-        run: |
-          set -euo pipefail
-          jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
-          test -n "$jar"
-          sha256sum "$jar" > "$jar.sha256"
-
       - name: Compute supported Keycloak range
         id: kc_range
         run: |
@@ -107,6 +100,7 @@ jobs:
           echo "range=$(bash scripts/kc-versions.sh range)" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -121,11 +115,32 @@ jobs:
             echo "**Supported Keycloak versions:** ${{ steps.kc_range.outputs.range }}"
             echo
           } > "$notes_file"
-          gh release create "$tag" "$jar" "$jar.sha256" \
+          gh release create "$tag" "$jar" \
             --title "$tag" \
             --notes-file "$notes_file" \
             --generate-notes \
             $([[ -n "${{ steps.version.outputs.prerelease }}" ]] && echo --prerelease)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Verify published checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
+          jar_name=$(basename "$jar")
+          local_sha=$(sha256sum "$jar" | cut -d' ' -f1)
+          # GitHub computes and publishes a SHA256 digest for every release asset itself
+          # (UI + API .assets[].digest, GA since June 2025) - no need to also ship our own
+          # redundant .sha256 file, just confirm the uploaded asset matches what we built.
+          remote_digest=$(gh release view "${{ steps.publish.outputs.tag }}" --json assets \
+            --jq ".assets[] | select(.name == \"$jar_name\") | .digest")
+          remote_sha="${remote_digest#sha256:}"
+          if [[ "$local_sha" != "$remote_sha" ]]; then
+            echo "Checksum mismatch: built $local_sha, GitHub reports $remote_sha" >&2
+            exit 1
+          fi
+          echo "Checksum verified against GitHub's asset digest: $local_sha"
 
       - name: Refresh README compatibility table
         run: |

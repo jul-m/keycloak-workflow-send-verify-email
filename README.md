@@ -61,14 +61,19 @@ behavior stays consistent with the rest of Keycloak.
 
 ## Installation
 
-1. Download the JAR and its `.sha256` checksum file from the
+1. Download the JAR from the
    [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases) page. Each
    release ships a **single JAR** covering every Keycloak version listed in its release notes; the
    extension's own version number never encodes a Keycloak version.
-2. Verify the checksum before deploying:
+2. Verify the checksum before deploying, against the SHA256 digest GitHub computes and publishes
+   for the asset itself (shown on the release page, or via `gh release view`):
 
    ```bash
-   sha256sum -c keycloak-workflow-send-verify-email-<version>.jar.sha256
+   version=<version> # e.g. 0.1.0
+   jar="keycloak-workflow-send-verify-email-$version.jar"
+   remote_sha="$(gh release view "v$version" --json assets \
+     --jq ".assets[] | select(.name == \"$jar\") | .digest" | cut -d: -f2)"
+   [[ "$(sha256sum "$jar" | cut -d' ' -f1)" == "$remote_sha" ]] && echo OK || echo MISMATCH
    ```
 3. Copy the JAR into Keycloak's `providers/` directory.
 4. Rebuild the server augmentation and restart Keycloak:
