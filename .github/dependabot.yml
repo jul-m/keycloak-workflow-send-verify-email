@@ -1,13 +1,37 @@
 version: 2
 updates:
+  # Maven dependencies. New Keycloak *minor* versions (and major, if that ever
+  # happens) are excluded below: .github/workflows/new-keycloak-version.yml
+  # already proposes those as a dedicated PR once the real test suite passes
+  # against the candidate version, so a second, untested Dependabot PR for the
+  # same bump would just be a competing/conflicting PR.
+  # Patch releases (e.g. 26.7.0 -> 26.7.1) are intentionally left alone: no
+  # workflow covers those today. Note this is about compile/test-time API
+  # compatibility only, not shipping a patched Keycloak - keycloak-core/
+  # server-spi(-private)/services are all `provided` and the test-framework
+  # artifacts are all `test` scope, so no Keycloak code ends up in the built
+  # jar; the actual server the extension is deployed into is what needs
+  # patching for CVEs, independent of this pom.xml.
   - package-ecosystem: maven
     directory: "/"
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "org.keycloak:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "org.keycloak.testframework:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
+  # GitHub Actions. Grouped into a single PR per run instead of one PR per
+  # action, since these updates are low-risk and reviewing/merging them
+  # individually is pure overhead.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
