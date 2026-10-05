@@ -101,7 +101,7 @@ To confirm the step is registered, check that `send-verify-email` is listed unde
 <!-- kc-compat:start -->
 | Keycloak | Extension |
 | --- | --- |
-| 26.7.x | Latest release (see [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases) for older extension versions and their supported range) |
+| 26.7.x - 26.8.x | Latest release (see [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases) for older extension versions and their supported range) |
 <!-- kc-compat:end -->
 
 This extension supports Keycloak 26.7 and later, as declared in

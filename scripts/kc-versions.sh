@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-SUPPORTED_KC_VERSIONS=("26.7")
+SUPPORTED_KC_VERSIONS=("26.7" "26.8")
 
 list_versions() {
 	printf '%s\n' "${SUPPORTED_KC_VERSIONS[@]}"

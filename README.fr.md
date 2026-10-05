@@ -104,7 +104,7 @@ catégorie de providers `workflow-step` :
 <!-- kc-compat:start -->
 | Keycloak | Extension |
 | --- | --- |
-| 26.7.x | Dernière release (voir les [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases) pour les versions antérieures de l'extension et leur plage de compatibilité) |
+| 26.7.x - 26.8.x | Dernière release (voir les [Releases](https://github.com/jul-m/keycloak-workflow-send-verify-email/releases) pour les versions antérieures de l'extension et leur plage de compatibilité) |
 <!-- kc-compat:end -->
 
 Cette extension prend en charge Keycloak 26.7 et les versions suivantes, comme déclaré dans
