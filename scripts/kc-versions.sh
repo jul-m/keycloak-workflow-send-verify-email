@@ -15,7 +15,8 @@
 #     requires also removing everything below it, to keep the list gap-free.
 #   - New Keycloak releases are proposed via a pull request (not pushed directly) by
 #     .github/workflows/new-keycloak-version.yml, once real integration tests pass
-#     against the candidate version.
+#     against every new candidate minor version. All candidates detected in a run are
+#     added together; the build version is the highest supported minor's .0 patch.
 #
 # Usage: kc-versions.sh [list|min|max|range]
 #   list  - one supported version per line (default)
