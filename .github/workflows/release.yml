@@ -24,11 +24,13 @@ jobs:
     name: Build and publish release
     runs-on: ubuntu-24.04
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
-       (startsWith(github.event.pull_request.head.ref, 'feat/') ||
-        startsWith(github.event.pull_request.head.ref, 'fix/') ||
-        startsWith(github.event.pull_request.head.ref, 'kc-fix/')))
+      github.event_name == 'workflow_dispatch' || (
+        github.event_name == 'pull_request' && github.event.pull_request.merged == true && (
+          startsWith(github.event.pull_request.head.ref, 'feat/') ||
+          startsWith(github.event.pull_request.head.ref, 'fix/') ||
+          startsWith(github.event.pull_request.head.ref, 'kc-fix/')
+        )
+      )
 
     steps:
       - name: Checkout
@@ -129,26 +131,13 @@ jobs:
           fi
           echo "Checksum verified against GitHub's asset digest: $local_sha"
 
-      - name: Refresh README compatibility table
-        run: |  # shell
-          # Refresh README compatibility table
-          scripts/render-readme-compat-table.sh
-          if git diff --quiet -- README.md README.fr.md; then
-            echo "No README changes."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md README.fr.md
-          git commit -m "docs: refresh Keycloak compatibility table for ${{ steps.version.outputs.version }}"
-          git push
-
 
   kc-support-merge:
     name: Extend latest release's supported range (no rebuild)
     runs-on: ubuntu-24.04
     if: >-
-      github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'kc-support/')
 
     steps:

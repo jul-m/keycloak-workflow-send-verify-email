@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +11,7 @@ permissions:
 jobs:
   build-tests:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

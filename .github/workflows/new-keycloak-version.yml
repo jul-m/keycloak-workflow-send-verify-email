@@ -12,10 +12,10 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: write
   issues: write
   pull-requests: write
-  actions: write
 
 jobs:
   new-keycloak-version:
@@ -98,6 +98,14 @@ jobs:
             echo "result=failure" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install Deploy SSH Key
+        uses: shimataro/ssh-key-action@v2
+        id: install-deploy-key
+        if: steps.candidate.outputs.new_version != '' && steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        with:
+          key: ${{ secrets.GH_SSH_DEPLOY_KEY }}
+
       - name: Create the version-bump branch
         id: branch
         if: steps.candidate.outputs.new_version != '' && steps.guard.outputs.proceed == 'true'
@@ -111,6 +119,12 @@ jobs:
             prefix="kc-fix"
           fi
           branch="$prefix/$VERSION"
+
+          # Commit with SSH if deploy key installed for triggering "push" events
+          if [[ "${{ steps.install-deploy-key.outcome }}" == "success" ]]; then
+            git config --global url."git@github.com:".insteadOf "https://github.com/"
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
@@ -199,10 +213,3 @@ jobs:
           gh pr create --base main --head "$BRANCH" --draft \
             --title "Fix Keycloak $VERSION compatibility" \
             --body-file pr_body.md
-
-      - name: Trigger CI on the new branch
-        if: steps.branch.outputs.branch != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.branch.outputs.branch }}
-        run: gh workflow run ci.yml --ref "$BRANCH"
