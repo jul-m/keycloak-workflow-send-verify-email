@@ -1,26 +1,3 @@
-# Detects new Keycloak minor releases and runs the real integration test suite
-# against them - not just a compatibility check. What happens on merge of the PRs
-# this opens (kc-support/* -> extend the latest release's notes, no rebuild;
-# kc-fix/* -> a real code change, ships like any other update) is handled by
-# release.yml, which triggers on merged pull requests.
-#
-# `detect-and-test` (scheduled, or manual via workflow_dispatch): finds the next
-# Keycloak minor above kc-versions.sh's current max and runs
-# scripts/build-tests.sh <version> (Keycloak's own test-framework, not a Docker
-# smoke test) against the current `main` source.
-# - Tests pass  -> opens a PR from `kc-support/<version>` (pom.xml + scripts/kc-versions.sh
-#   bumped, READMEs regenerated, no code changes).
-# - Tests fail  -> opens a draft PR from `kc-fix/<version>` (same version-list bump, CI
-#   expected to stay red until a human fixes the incompatibility) plus a tracking
-#   issue the PR closes on merge.
-# Either way, `ci.yml` is explicitly triggered on the new branch afterwards: a push
-# or PR made with the default GITHUB_TOKEN does not itself trigger other workflow
-# runs, so without this the PR would otherwise sit with no CI check at all.
-#
-# NOTE: this workflow has not been exercised end-to-end yet (no new Keycloak minor was
-# available to test against at the time it was written). Validate it manually via
-# workflow_dispatch (optionally forcing `keycloak_version`) before trusting its output,
-# per docs/CONTRIBUTING.md.
 name: New Keycloak version
 
 on:
@@ -34,15 +11,17 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
 jobs:
-  detect-and-test:
+  new-keycloak-version:
     name: Detect and test a new Keycloak release
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      actions: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -54,42 +33,49 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Determine current max supported version
-        id: current
-        run: echo "max=$(bash scripts/kc-versions.sh max)" >> "$GITHUB_OUTPUT"
-
       - name: Find the next candidate Keycloak version
         id: candidate
         env:
           GH_TOKEN: ${{ github.token }}
           FORCED_VERSION: ${{ inputs.keycloak_version }}
-          CURRENT_MAX: ${{ steps.current.outputs.max }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Find the next candidate Keycloak version
           if [[ -n "$FORCED_VERSION" ]]; then
             echo "version=$FORCED_VERSION" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Keycloak's own release tags are X.Y.Z; reduce to unique X.Y minors, keep only
-          # those newer than our current max, and take the lowest one - one candidate per
-          # run keeps kc-versions.sh gap-free and each PR single-purpose. The next candidate
-          # (if any) is picked up on a later run once this one is resolved.
-          all_minors=$(gh api repos/keycloak/keycloak/releases --paginate --jq '.[].tag_name' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            | awk -F. '{print $1"."$2}' \
-            | sort -u -t. -k1,1n -k2,2n)
-          next=$(echo "$all_minors" | awk -F. -v max="$CURRENT_MAX" '
-            { split(max, m, "."); if ($1 > m[1] || ($1 == m[1] && $2 > m[2])) print }
-          ' | sort -u -t. -k1,1n -k2,2n | head -n1)
-          echo "version=${next}" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if a branch already exists for this version
+          current_max=$(scripts/kc-versions.sh max)
+          echo "Current max supported version: $current_max"
+
+          all_minors=$(
+            gh api repos/keycloak/keycloak/releases --paginate --jq '.[].tag_name' |
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
+            awk -F. '{print $1"."$2}' |
+            sort -u -t. -k1,1n -k2,2n
+          )
+          next=$(
+            echo "$all_minors" |
+            awk -F. -v max="$current_max" '{ split(max, m, "."); if ($1 > m[1] || ($1 == m[1] && $2 > m[2])) print }' |
+            sort -u -t. -k1,1n -k2,2n |
+            head -n1
+          )
+
+          if [[ -n "$next" ]]; then
+            echo "new_version=${next}" >> "$GITHUB_OUTPUT"
+            echo "Found new Keycloak version: $next"
+          else
+            echo "new_version=" >> "$GITHUB_OUTPUT"
+            echo "No new Keycloak version found."
+          fi
+
+      - name: Check if a branch and PR already exist for this version
         id: guard
-        if: steps.candidate.outputs.version != ''
+        if: steps.candidate.outputs.new_version != ''
         env:
-          VERSION: ${{ steps.candidate.outputs.version }}
-        run: |
-          set -euo pipefail
+          VERSION: ${{ steps.candidate.outputs.new_version }}
+        run: |  # shell
+          # Get existing branch for this version
           if git ls-remote --exit-code --heads origin "kc-support/$VERSION" "kc-fix/$VERSION" > /dev/null 2>&1; then
             echo "A branch already exists for Keycloak $VERSION - nothing to do this run."
             echo "proceed=false" >> "$GITHUB_OUTPUT"
@@ -99,25 +85,27 @@ jobs:
 
       - name: Run integration tests against the candidate version
         id: test
-        if: steps.candidate.outputs.version != '' && steps.guard.outputs.proceed == 'true'
+        if: steps.candidate.outputs.new_version != '' && steps.guard.outputs.proceed == 'true'
         env:
-          VERSION: ${{ steps.candidate.outputs.version }}
-        run: |
-          set -uo pipefail
-          if bash scripts/build-tests.sh "$VERSION"; then
+          VERSION: ${{ steps.candidate.outputs.new_version }}
+        run: |  # shell
+          # Run integration tests against the candidate version
+          if scripts/build-tests.sh "$VERSION"; then
+            echo "Candidate version $VERSION passed the integration tests."
             echo "result=success" >> "$GITHUB_OUTPUT"
           else
+            echo "::error::Candidate version $VERSION failed the integration tests."
             echo "result=failure" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create the version-bump branch
         id: branch
-        if: steps.candidate.outputs.version != '' && steps.guard.outputs.proceed == 'true'
+        if: steps.candidate.outputs.new_version != '' && steps.guard.outputs.proceed == 'true'
         env:
-          VERSION: ${{ steps.candidate.outputs.version }}
+          VERSION: ${{ steps.candidate.outputs.new_version }}
           RESULT: ${{ steps.test.outputs.result }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Create the version-bump branch
           prefix="kc-support"
           if [[ "$RESULT" != "success" ]]; then
             prefix="kc-fix"
@@ -128,9 +116,9 @@ jobs:
           git checkout -b "$branch"
           sed -i -E "s/(<keycloak\.version>)[0-9]+\.[0-9]+\.[0-9]+(<\/keycloak\.version>)/\1${VERSION}.0\2/" pom.xml
           sed -i -E "s/(SUPPORTED_KC_VERSIONS=\()(.*)(\))/\1\2 \"$VERSION\"\3/" scripts/kc-versions.sh
-          bash scripts/render-readme-compat-table.sh
+          scripts/render-readme-compat-table.sh
           git add pom.xml scripts/kc-versions.sh README.md README.fr.md
-          git commit -m "chore: add Keycloak $VERSION as a candidate version"
+          git commit -m "ci(new-keycloak-version): add Keycloak $VERSION as a candidate version"
           git push -u origin "$branch"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
@@ -139,10 +127,10 @@ jobs:
         if: steps.test.outputs.result == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.candidate.outputs.version }}
+          VERSION: ${{ steps.candidate.outputs.new_version }}
           BRANCH: ${{ steps.branch.outputs.branch }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Open a tracking issue for the failing candidate version
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
             echo "Keycloak $VERSION failed the automated compatibility check run by"
@@ -155,6 +143,7 @@ jobs:
             echo "version - the fix (or the decision to drop this version instead) belongs"
             echo "there. See the linked pull request."
           } > issue_body.md
+
           number=$(gh issue create \
             --title "Keycloak $VERSION compatibility check failed" \
             --body-file issue_body.md | grep -oE '[0-9]+$')
@@ -164,10 +153,10 @@ jobs:
         if: steps.test.outputs.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.candidate.outputs.version }}
+          VERSION: ${{ steps.candidate.outputs.new_version }}
           BRANCH: ${{ steps.branch.outputs.branch }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Open a pull request for the compatible candidate version
           {
             echo "\`scripts/build-tests.sh $VERSION\` (real integration tests via Keycloak's"
             echo "test-framework, not a smoke test) passed against Keycloak $VERSION using the"
@@ -178,6 +167,7 @@ jobs:
             echo "already-published latest release's notes are updated automatically to"
             echo "extend the documented compatibility range."
           } > pr_body.md
+
           gh pr create --base main --head "$BRANCH" \
             --title "Add Keycloak $VERSION support (validated, no rebuild)" \
             --body-file pr_body.md
@@ -186,11 +176,11 @@ jobs:
         if: steps.test.outputs.result == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.candidate.outputs.version }}
+          VERSION: ${{ steps.candidate.outputs.new_version }}
           BRANCH: ${{ steps.branch.outputs.branch }}
           ISSUE: ${{ steps.issue.outputs.number }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Open a pull request for the candidate version that needs a code fix
           {
             echo "\`scripts/build-tests.sh $VERSION\` failed against Keycloak $VERSION using the"
             echo "current \`main\` source - see #$ISSUE for details."
@@ -205,6 +195,7 @@ jobs:
             echo
             echo "Fixes #$ISSUE"
           } > pr_body.md
+
           gh pr create --base main --head "$BRANCH" --draft \
             --title "Fix Keycloak $VERSION compatibility" \
             --body-file pr_body.md
@@ -214,9 +205,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.branch.outputs.branch }}
-        run: |
-          set -euo pipefail
-          # The push and PR creation above used the default GITHUB_TOKEN, which does
-          # not itself trigger other workflow runs - without this, the new PR would
-          # sit with no CI check at all.
-          gh workflow run ci.yml --ref "$BRANCH"
+        run: gh workflow run ci.yml --ref "$BRANCH"

@@ -16,18 +16,20 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Build and publish release
+    runs-on: ubuntu-24.04
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
        (startsWith(github.event.pull_request.head.ref, 'feat/') ||
         startsWith(github.event.pull_request.head.ref, 'fix/') ||
         startsWith(github.event.pull_request.head.ref, 'kc-fix/')))
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -47,22 +49,19 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
-        run: |
-          set -euo pipefail
-          version=""
-          prerelease=""
+        run: |  # shell
+          # Determine release version
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
             prerelease="$INPUT_PRERELEASE"
-          fi
-          if [[ "$EVENT_NAME" != "workflow_dispatch" || -z "$version" ]]; then
-            # ci.yml already enforced and committed this version on the branch before
-            # it could pass CI and be merged - just trust what's on main now.
-            version=$(grep -m1 -oE '<project-version>[0-9]+\.[0-9]+\.[0-9]+</project-version>' pom.xml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          fi
-          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+          else
+            version=$(
+              grep -m1 -oE '<project-version>[0-9]+\.[0-9]+\.[0-9]+</project-version>' pom.xml |
+              grep -oE '[0-9]+\.[0-9]+\.[0-9]+'
+            )
             prerelease=""
           fi
+
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if [[ -n "$prerelease" ]]; then
             [[ "$prerelease" =~ ^[0-9A-Za-z.-]+$ ]]
@@ -71,71 +70,59 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Check pom.xml / kc-versions.sh are in sync
-        run: bash scripts/check-pom-kc-versions-sync.sh
+        run: scripts/check-pom-kc-versions-sync.sh
 
       - name: Validate every supported Keycloak version and build release artifact
-        run: |
-          set -euo pipefail
-          suffix=""
+        run: |  # shell
+          # Validate every supported Keycloak version and build release artifact
           if [[ -n "${{ steps.version.outputs.prerelease }}" ]]; then
             suffix="-${{ steps.version.outputs.prerelease }}"
+          else
+            suffix=""
           fi
-          # "all" validates every supported version in order (ascending, see kc-versions.sh) -
-          # the last run is against the max version, i.e. the one pom.xml already builds by
-          # default, and its target/*.jar is what survives (each run does `mvn clean` first)
-          # and becomes the actual release artifact. Baking -Dproject-version/-Drevision into
-          # every run (not just the last) is harmless since only the last one's output is kept -
-          # this avoids a second full `mvn clean verify` on the max version just to relabel it.
-          # No suffix on a final release: the jar is named <artifactId>-<version>.jar, not
-          # <artifactId>-<version>-FINAL.jar.
-          bash scripts/build-tests.sh all \
+          scripts/build-tests.sh all \
             -Dproject-version="${{ steps.version.outputs.version }}" \
             -Dbuild-suffix="$suffix" \
             -Drevision="${{ steps.version.outputs.version }}$suffix"
-
-      - name: Compute supported Keycloak range
-        id: kc_range
-        run: |
-          set -euo pipefail
-          echo "range=$(bash scripts/kc-versions.sh range)" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Publish GitHub release for the computed version
           tag="v${{ steps.version.outputs.version }}"
           if [[ -n "${{ steps.version.outputs.prerelease }}" ]]; then
             tag="$tag-${{ steps.version.outputs.prerelease }}"
           fi
+          range=$(scripts/kc-versions.sh range)
           jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
           notes_file="$(mktemp)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
           {
-            echo "**Supported Keycloak versions:** ${{ steps.kc_range.outputs.range }}"
-            echo
+            echo "**Supported Keycloak versions:** $range"
+            echo ""
           } > "$notes_file"
+
           gh release create "$tag" "$jar" \
             --title "$tag" \
             --notes-file "$notes_file" \
             --generate-notes \
             $([[ -n "${{ steps.version.outputs.prerelease }}" ]] && echo --prerelease)
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Verify published checksum
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Verify published checksum against GitHub asset digest
           jar=$(find target -maxdepth 1 -type f -name '*.jar' -print -quit)
           jar_name=$(basename "$jar")
           local_sha=$(sha256sum "$jar" | cut -d' ' -f1)
-          # GitHub computes and publishes a SHA256 digest for every release asset itself
-          # (UI + API .assets[].digest, GA since June 2025) - no need to also ship our own
-          # redundant .sha256 file, just confirm the uploaded asset matches what we built.
           remote_digest=$(gh release view "${{ steps.publish.outputs.tag }}" --json assets \
             --jq ".assets[] | select(.name == \"$jar_name\") | .digest")
           remote_sha="${remote_digest#sha256:}"
+
           if [[ "$local_sha" != "$remote_sha" ]]; then
             echo "Checksum mismatch: built $local_sha, GitHub reports $remote_sha" >&2
             exit 1
@@ -143,9 +130,9 @@ jobs:
           echo "Checksum verified against GitHub's asset digest: $local_sha"
 
       - name: Refresh README compatibility table
-        run: |
-          set -euo pipefail
-          bash scripts/render-readme-compat-table.sh
+        run: |  # shell
+          # Refresh README compatibility table
+          scripts/render-readme-compat-table.sh
           if git diff --quiet -- README.md README.fr.md; then
             echo "No README changes."
             exit 0
@@ -156,14 +143,14 @@ jobs:
           git commit -m "docs: refresh Keycloak compatibility table for ${{ steps.version.outputs.version }}"
           git push
 
+
   kc-support-merge:
     name: Extend latest release's supported range (no rebuild)
+    runs-on: ubuntu-24.04
     if: >-
       github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'kc-support/')
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout main
         uses: actions/checkout@v7
@@ -173,12 +160,13 @@ jobs:
       - name: Update latest release notes
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Update latest release notes
           latest_tag=$(gh release view --json tagName --jq .tagName)
           range=$(bash scripts/kc-versions.sh range)
           new_line="**Supported Keycloak versions:** ${range}"
           current_notes=$(gh release view "$latest_tag" --json body --jq .body)
+
           if printf '%s\n' "$current_notes" | head -n1 | grep -q '^\*\*Supported Keycloak versions:\*\*'; then
             printf '%s\n' "$current_notes" | tail -n +2 > notes_rest.md
           else
@@ -187,17 +175,22 @@ jobs:
               printf '%s\n' "$current_notes"
             } > notes_rest.md
           fi
-          { echo "$new_line"; cat notes_rest.md; } > notes.md
+
+          {
+            echo "$new_line"
+            cat notes_rest.md
+          } > notes.md
           gh release edit "$latest_tag" --notes-file notes.md
+
 
   sync-open-branches:
     name: Sync open managed branches with main
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
+    if: github.event.pull_request.merged == true
     permissions:
-      contents: write
       actions: write
       pull-requests: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -208,22 +201,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MERGED_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
+        run: |  # shell
+          # Merge main into other open managed branches
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           for prefix in feat fix kc-fix kc-support; do
-            branches=$(gh pr list --state open --json headRefName --jq \
-              ".[] | select(.headRefName | startswith(\"$prefix/\")) | .headRefName")
+            branches=$(gh pr list --state open --json headRefName \
+              --jq ".[] | select(.headRefName | startswith(\"$prefix/\")) | .headRefName")
+
             for branch in $branches; do
               if [[ "$branch" == "$MERGED_BRANCH" ]]; then
                 continue
               fi
 
               echo "== Syncing $branch with main =="
-              ok=true
-              git fetch origin "$branch" || ok=false
+              git fetch origin "$branch" && ok=true || ok=false
 
               if [[ "$ok" == "true" ]]; then
                 git checkout -B "$branch" "origin/$branch"
@@ -244,7 +237,9 @@ jobs:
               else
                 pr_number=$(gh pr list --state open --head "$branch" --json number --jq '.[0].number')
                 if [[ -n "$pr_number" ]]; then
-                  gh pr comment "$pr_number" --body "Could not automatically merge \`main\` into this branch (fork without \"Allow edits by maintainers\", or a merge conflict). Please rebase/merge \`main\` into this branch manually."
+                  gh pr comment "$pr_number" --body "Could not automatically merge \`main\` into this branch" \
+                     "(fork without \"Allow edits by maintainers\", or a merge conflict)." \
+                     "Please rebase/merge \`main\` into this branch manually."
                 fi
               fi
             done

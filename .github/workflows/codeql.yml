@@ -34,9 +34,6 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
-          # none (testing, 2026-08-12): no build, so no Maven dependency download - the
-          # Keycloak SPI types (provided scope) may not resolve. Compare finding counts /
-          # diagnostics against the previous "manual" runs before trusting this long-term.
           build-mode: none
 
       - name: Perform CodeQL analysis

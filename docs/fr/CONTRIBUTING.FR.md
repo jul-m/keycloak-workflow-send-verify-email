@@ -91,7 +91,6 @@ La documentation est bilingue : chaque page possède un équivalent qui doit êt
 | `README.md` | `README.fr.md` |
 | `docs/CONTRIBUTING.md` | `docs/fr/CONTRIBUTING.FR.md` |
 | `docs/SECURITY.md` | `docs/fr/SECURITY.FR.md` |
-| `CODE_OF_CONDUCT.md` | `CODE_OF_CONDUCT.fr.md` |
 | `docs/examples/*.yml` | `docs/examples/*.fr.yml` |
 
 `CHANGELOG.md` reste uniquement en anglais. Deux règles supplémentaires s'appliquent :
@@ -152,7 +151,3 @@ Utilisez les templates d'issue GitHub. Recherchez d'abord dans les issues exista
 ## Failles de sécurité
 
 N'ouvrez pas d'issue publique pour signaler une faille de sécurité. Voir [SECURITY.FR.md](SECURITY.FR.md).
-
-## Code de conduite
-
-Ce projet suit le [Code de conduite](../../CODE_OF_CONDUCT.fr.md). En y participant, vous acceptez de vous y conformer.

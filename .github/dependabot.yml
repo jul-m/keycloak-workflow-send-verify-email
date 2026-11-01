@@ -10,7 +10,6 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
     ignore:
       - dependency-name: "org.keycloak:*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
@@ -29,7 +28,6 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
     groups:
       github-actions:
         patterns:

@@ -273,9 +273,7 @@ D'autres définitions prêtes à poster sont disponibles dans [`docs/examples/`]
 
 ## Contribuer
 
-Les contributions sont les bienvenues. Voir [CONTRIBUTING.FR.md](docs/fr/CONTRIBUTING.FR.md) pour
-l'installation locale, les conventions de code, la structure des tests et le processus de pull
-request, et [CODE_OF_CONDUCT.fr.md](CODE_OF_CONDUCT.fr.md) pour les règles de la communauté.
+Les contributions sont les bienvenues. Voir [CONTRIBUTING.FR.md](docs/fr/CONTRIBUTING.FR.md) pour l'installation locale, les conventions de code, la structure des tests et le processus de pull request.
 
 ## Sécurité
 

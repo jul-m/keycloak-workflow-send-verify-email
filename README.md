@@ -266,9 +266,7 @@ More ready-to-post definitions are available in [`docs/examples/`](docs/examples
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for local setup, coding
-conventions, the test structure and the pull request process, and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for local setup, coding conventions, the test structure and the pull request process.
 
 ## Security
 

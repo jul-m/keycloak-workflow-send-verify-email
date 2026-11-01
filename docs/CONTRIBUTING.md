@@ -91,7 +91,6 @@ The documentation is bilingual, and each page has a counterpart that must be upd
 | `README.md` | `README.fr.md` |
 | `docs/CONTRIBUTING.md` | `docs/fr/CONTRIBUTING.FR.md` |
 | `docs/SECURITY.md` | `docs/fr/SECURITY.FR.md` |
-| `CODE_OF_CONDUCT.md` | `CODE_OF_CONDUCT.fr.md` |
 | `docs/examples/*.yml` | `docs/examples/*.fr.yml` |
 
 `CHANGELOG.md` is English-only. Two more rules:
@@ -152,7 +151,3 @@ Use the GitHub issue templates. Search existing issues first to avoid duplicates
 ## Security issues
 
 Do not open a public issue for a security vulnerability. See [SECURITY.md](SECURITY.md).
-
-## Code of conduct
-
-This project follows the [Code of Conduct](../CODE_OF_CONDUCT.md). By participating, you agree to abide by it.
