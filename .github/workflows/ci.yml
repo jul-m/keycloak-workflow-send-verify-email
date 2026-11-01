@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  checks: write
   contents: write
 
 jobs:
@@ -83,4 +84,16 @@ jobs:
         run: scripts/check-pom-kc-versions-sync.sh
 
       - name: Build and test (unit + integration)
-        run: scripts/build-tests.sh
+        id: build-tests
+        run: scripts/build-tests.sh all
+
+      - name: Create check-runs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |  # shell
+          # Create a check-run for the new Keycloak version test result
+          CURRENT_SHA=$(git rev-parse HEAD)
+          gh api -X POST /repos/${{ github.repository }}/check-runs \
+            -F name="Build & Tests Results" -F head_sha=$CURRENT_SHA -F status=completed \
+            -F conclusion=$([ "${{ steps.build-tests.outcome }}" == "success" ] && echo "success" || echo "failure")
