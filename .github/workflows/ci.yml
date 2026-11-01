@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -34,7 +33,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REF: ${{ github.head_ref }}
           REF_NAME: ${{ github.ref_name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |  # shell
           # Enforce version on managed branches
@@ -60,14 +58,6 @@ jobs:
           if [[ "$expected" == "$actual" ]] && git diff --quiet -- README.md README.fr.md; then
             echo "Version already up to date ($actual)."
             exit 0
-          fi
-
-          if [[ "$EVENT_NAME" == "pull_request" && -n "$HEAD_REPO" && "$HEAD_REPO" != "$BASE_REPO" ]]; then
-            echo "::error::Versions in branch files require update" \
-              "(pom.xml has $actual, expected $expected for a $bump bump)." \
-              "This is fixed automatically when ci.yml runs on your fork, which has write access there." \
-              "Make sure GitHub Actions is enabled on your fork (Actions tab), push again, then update this PR."
-            exit 1
           fi
 
           sed -i -E "s/(<project-version>)[0-9]+\.[0-9]+\.[0-9]+(<\/project-version>)/\1${expected}\2/" pom.xml
